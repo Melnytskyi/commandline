@@ -2,6 +2,44 @@
 
 #include "impls.h"
 
+size_t make_left(const char* arr, size_t pos) {
+    size_t res = 1;
+    --pos;
+    while (pos) {
+        if ((arr[pos] & 0xc0) == 0x80) {
+            ++res;
+        } else {
+            break;
+        }
+        --pos;
+    }
+    return res;
+}
+size_t make_right(const char* arr, size_t pos) {
+    size_t res = 1;
+    ++pos;
+    if ((arr[pos] & 0xc0) == 0x80) {
+        while ((arr[pos] & 0xc0) == 0x80) {
+            ++res;
+            ++pos;
+        }
+    }
+    return res;
+}
+
+size_t utf8_length(const char* str, size_t siz = -1) {
+    size_t len = 0;
+
+    while (*str && len != siz) {
+        len += (*str++ & 0xc0) <= 0x80; // normal ascii or codepoint
+    }
+    return len;
+}
+
+size_t utf8_length(const std::string& str) {
+    return utf8_length(str.c_str(), str.size());
+}
+
 lk::InteractiveBackend::InteractiveBackend(const std::string& prompt)
     : Backend()
     , m_prompt(prompt) {
@@ -27,6 +65,14 @@ std::string lk::InteractiveBackend::prompt() const {
 void lk::InteractiveBackend::add_to_current_buffer(char c) {
     m_current_buffer.insert(m_cursor_pos, 1, c);
     ++m_cursor_pos;
+    ++m_cursor_pos_view;
+    update_current_buffer_view();
+    m_history_temp_buffer = m_current_buffer;
+}
+void lk::InteractiveBackend::add_to_current_buffer_multibyte(char* c, size_t count) {
+    m_current_buffer.insert(m_cursor_pos, c, count);
+    m_cursor_pos += count;
+    ++m_cursor_pos_view;
     update_current_buffer_view();
     m_history_temp_buffer = m_current_buffer;
 }
@@ -48,6 +94,7 @@ void lk::InteractiveBackend::go_back() {
         m_current_buffer = m_history.at(m_history_index);
     }
     m_cursor_pos = (int)m_current_buffer.size();
+    m_cursor_pos_view = utf8_length(m_current_buffer);
     update_current_buffer_view();
 }
 
@@ -63,19 +110,22 @@ void lk::InteractiveBackend::go_forward() {
         m_current_buffer = m_history.at(m_history_index);
     }
     m_cursor_pos = (int)m_current_buffer.size();
+    m_cursor_pos_view = utf8_length(m_current_buffer);
     update_current_buffer_view();
 }
 
 void lk::InteractiveBackend::go_left() {
     if (m_cursor_pos > 0 && !m_current_buffer.empty()) {
-        --m_cursor_pos;
+        --m_cursor_pos_view;
+        m_cursor_pos -= make_left(m_current_buffer.c_str(), m_cursor_pos);
         update_current_buffer_view();
     }
 }
 
 void lk::InteractiveBackend::go_right() {
     if (size_t(m_cursor_pos) < m_current_buffer.size()) {
-        ++m_cursor_pos;
+        ++m_cursor_pos_view;
+        m_cursor_pos += make_right(m_current_buffer.c_str(), m_cursor_pos);
         update_current_buffer_view();
     }
 }
@@ -83,12 +133,14 @@ void lk::InteractiveBackend::go_right() {
 void lk::InteractiveBackend::go_to_begin() {
     if (m_cursor_pos > 0 && !m_current_buffer.empty()) {
         m_cursor_pos = 0;
+        m_cursor_pos_view = 0;
         update_current_buffer_view();
     }
 }
 
 void lk::InteractiveBackend::go_to_end() {
     m_cursor_pos = (int)m_current_buffer.size();
+    m_cursor_pos_view = utf8_length(m_current_buffer);
     update_current_buffer_view();
 }
 
@@ -140,17 +192,21 @@ bool lk::InteractiveBackend::cancel_autocomplete_suggestion() {
 
 void lk::InteractiveBackend::handle_backspace() {
     if (!cancel_autocomplete_suggestion() && !m_current_buffer.empty()) {
-        if (--m_cursor_pos < 0) {
+        size_t remove_count = make_left(m_current_buffer.c_str(), m_cursor_pos);
+        --m_cursor_pos_view;
+        if ((m_cursor_pos -= remove_count) < 0) {
             m_cursor_pos = 0;
+            m_cursor_pos_view = 0;
         }
-        m_current_buffer.erase(m_cursor_pos, 1);
+        m_current_buffer.erase(m_cursor_pos, remove_count);
         update_current_buffer_view();
     }
 }
 
 void lk::InteractiveBackend::handle_delete() {
     if (!m_current_buffer.empty() && m_cursor_pos < int(m_current_buffer.size())) {
-        m_current_buffer.erase(m_cursor_pos, 1);
+        size_t remove_count = make_right(m_current_buffer.c_str(), m_cursor_pos);
+        m_current_buffer.erase(m_cursor_pos, remove_count);
         update_current_buffer_view();
     }
 }
@@ -160,8 +216,6 @@ void lk::InteractiveBackend::handle_escape_sequence(std::unique_lock<std::mutex>
     if (m_key_debug) {
         fprintf(stderr, "c2: 0x%.2x\n", c2);
     }
-
-#if defined(UNIX)
     int c3 = impl::getchar_no_echo();
     if (m_key_debug) {
         fprintf(stderr, "c3: 0x%.2x\n", c3);
@@ -195,34 +249,9 @@ void lk::InteractiveBackend::handle_escape_sequence(std::unique_lock<std::mutex>
             // SHIFT+TAB
             handle_tab(guard, false);
         }
-#elif defined(WINDOWS)
-    if (c2 == 'H') {
-        // up / back
-        go_back();
-    } else if (c2 == 'P') {
-        // down / forward
-        go_forward();
-    } else if (c2 == 'K') {
-        // left
-        go_left();
-    } else if (c2 == 'M') {
-        // right
-        go_right();
-    } else if (c2 == 0x47) {
-        // HOME
-        go_to_begin();
-    } else if (c2 == 0x4f) {
-        // END
-        go_to_end();
-    } else if (c2 == 0x53) {
-        // DEL
-        handle_delete();
-#endif
     } else {
         add_to_current_buffer(c2);
-#if defined(UNIX)
         add_to_current_buffer(c3);
-#endif
     }
 }
 
@@ -231,40 +260,33 @@ void lk::InteractiveBackend::input_thread_main() {
         int c = 0;
         while (c != '\n' && c != '\r' && !m_shutdown.load()) {
             update_current_buffer_view();
-            c = impl::getchar_no_echo();
+            char utf8_c[7];
+            size_t read = 0;
+            if (!impl::getchar_utf8_no_echo(utf8_c, read))
+                continue;
+            c = utf8_c[0];
             if (m_key_debug) {
                 fprintf(stderr, "c: 0x%.2x\n", c);
             }
             std::unique_lock<std::mutex> guard(m_current_buffer_mutex);
-            if (c != '\t') {
-            }
-            if (c == '\b' || c == 127) { // backspace or other delete sequence
+            if (utf8_c[0] == '\b' || c == 127) {
                 handle_backspace();
                 clear_suggestions();
             } else if (c == '\t') {
                 handle_tab(guard, true);
-            } else if (isprint(c)) {
-                add_to_current_buffer(c);
-                clear_suggestions();
             } else if (c == 0x1b) { // escape sequence
-#if defined(UNIX)
                 handle_escape_sequence(guard);
-#else
                 cancel_autocomplete_suggestion();
-#endif
-            } else if (c == 0xe0) { // escape sequence
-#if defined(WINDOWS)
-                handle_escape_sequence(guard);
-#endif
             } else {
-                if (m_key_debug) {
-                    fprintf(stderr, "unhandled: 0x%.2x\n", c);
-                }
+                add_to_current_buffer_multibyte(utf8_c, read);
+                clear_suggestions();
             }
         }
         bool shutdown = m_shutdown.load();
         // check so we dont do anything on the last pass before exit
         if (!shutdown) {
+            m_current_buffer.erase(m_current_buffer.size() - 1);
+
             if (history_enabled() && m_current_buffer.size() > 0) {
                 add_to_history(m_current_buffer);
             }
@@ -272,6 +294,7 @@ void lk::InteractiveBackend::input_thread_main() {
             m_to_read.push(m_current_buffer);
             m_current_buffer.clear();
             m_cursor_pos = 0;
+            m_cursor_pos_view = 0;
             update_current_buffer_view();
         }
         if (on_command && !shutdown) {
@@ -403,18 +426,18 @@ std::string lk::InteractiveBackend::current_view() {
 size_t lk::InteractiveBackend::current_view_cursor_pos() {
     const auto view = current_view_size();
     if (current_view_offset() + view > view) {
-        return m_cursor_pos + m_prompt.size() - current_view_offset() + 2;
+        return m_cursor_pos_view + m_prompt.size() - current_view_offset() + 2;
     } else {
-        return m_cursor_pos + m_prompt.size() - current_view_offset() + 1;
+        return m_cursor_pos_view + m_prompt.size() - current_view_offset() + 1;
     }
 }
 
 size_t lk::InteractiveBackend::current_view_offset() {
     const auto view_size = current_view_size();
-    if (m_cursor_pos < view_size) {
+    if (m_cursor_pos_view < view_size) {
         return 0;
     }
-    return m_cursor_pos - view_size;
+    return m_cursor_pos_view - view_size;
 }
 size_t lk::InteractiveBackend::current_view_size() {
     const auto w = impl::get_terminal_width() - m_prompt.size() - 1;
