@@ -372,10 +372,10 @@ std::string lk::InteractiveBackend::current_view() {
     std::string buffer = m_current_buffer;
     const auto view = current_view_size();
     auto end = view;
-    if (buffer.size() > view) {
+    if (utf_8::length(buffer) > view) {
         std::string prefix = "";
         std::string postfix = "";
-        if (current_view_offset() + view < buffer.size()) {
+        if (current_view_offset() + view < utf_8::length(buffer)) {
             postfix = "\x1b[7m>\x1b[0m";
         }
         if (current_view_offset() + view > view) {
@@ -408,7 +408,7 @@ size_t lk::InteractiveBackend::current_view_offset() {
 }
 
 size_t lk::InteractiveBackend::current_view_size() {
-    const auto w = impl::get_terminal_width() - m_prompt.size() - 1;
+    const auto w = impl::get_terminal_width() - utf_8::length(m_prompt) - 1;
     const auto view_size = w - 1;
     return view_size;
 }
