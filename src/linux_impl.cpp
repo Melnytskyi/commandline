@@ -56,16 +56,16 @@ int impl::getchar_no_echo() {
     return detail::getch_(false);
 }
 
-bool impl::getchar_utf8_no_echo(char (&character)[7], size_t& used) {
+bool impl::getchar_utf8_no_echo(char (&character)[7], std::size_t& used) {
     used = 1;
     int first = character[0] = getchar_no_echo();
     if (first & 0x80) {
         int count = 0;
-        if ((first 0xE0) == 0xC0) {
+        if ((first & 0xE0) == 0xC0) {
             count = 1;
-        } else if ((first 0xF0) == 0xE0) {
+        } else if ((first & 0xF0) == 0xE0) {
             count = 2;
-        } else if ((first 0xF8) == 0xF0) {
+        } else if ((first & 0xF8) == 0xF0) {
             count = 3;
         } else {
             return false;

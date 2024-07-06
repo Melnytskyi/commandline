@@ -2,43 +2,7 @@
 
 #include "impls.h"
 
-size_t make_left(const char* arr, size_t pos) {
-    size_t res = 1;
-    --pos;
-    while (pos) {
-        if ((arr[pos] & 0xc0) == 0x80) {
-            ++res;
-        } else {
-            break;
-        }
-        --pos;
-    }
-    return res;
-}
-size_t make_right(const char* arr, size_t pos) {
-    size_t res = 1;
-    ++pos;
-    if ((arr[pos] & 0xc0) == 0x80) {
-        while ((arr[pos] & 0xc0) == 0x80) {
-            ++res;
-            ++pos;
-        }
-    }
-    return res;
-}
-
-size_t utf8_length(const char* str, size_t siz = -1) {
-    size_t len = 0;
-
-    while (*str && len != siz) {
-        len += (*str++ & 0xc0) <= 0x80; // normal ascii or codepoint
-    }
-    return len;
-}
-
-size_t utf8_length(const std::string& str) {
-    return utf8_length(str.c_str(), str.size());
-}
+#include "utf8.hpp"
 
 lk::InteractiveBackend::InteractiveBackend(const std::string& prompt)
     : Backend()
@@ -94,7 +58,7 @@ void lk::InteractiveBackend::go_back() {
         m_current_buffer = m_history.at(m_history_index);
     }
     m_cursor_pos = (int)m_current_buffer.size();
-    m_cursor_pos_view = utf8_length(m_current_buffer);
+    m_cursor_pos_view = utf_8::length(m_current_buffer);
     update_current_buffer_view();
 }
 
@@ -110,14 +74,14 @@ void lk::InteractiveBackend::go_forward() {
         m_current_buffer = m_history.at(m_history_index);
     }
     m_cursor_pos = (int)m_current_buffer.size();
-    m_cursor_pos_view = utf8_length(m_current_buffer);
+    m_cursor_pos_view = utf_8::length(m_current_buffer);
     update_current_buffer_view();
 }
 
 void lk::InteractiveBackend::go_left() {
     if (m_cursor_pos > 0 && !m_current_buffer.empty()) {
         --m_cursor_pos_view;
-        m_cursor_pos -= make_left(m_current_buffer.c_str(), m_cursor_pos);
+        m_cursor_pos -= utf_8::get_prev_symbol_offset(m_current_buffer, m_cursor_pos);
         update_current_buffer_view();
     }
 }
@@ -125,7 +89,7 @@ void lk::InteractiveBackend::go_left() {
 void lk::InteractiveBackend::go_right() {
     if (size_t(m_cursor_pos) < m_current_buffer.size()) {
         ++m_cursor_pos_view;
-        m_cursor_pos += make_right(m_current_buffer.c_str(), m_cursor_pos);
+        m_cursor_pos += utf_8::get_next_symbol_offset(m_current_buffer, m_cursor_pos);
         update_current_buffer_view();
     }
 }
@@ -140,7 +104,7 @@ void lk::InteractiveBackend::go_to_begin() {
 
 void lk::InteractiveBackend::go_to_end() {
     m_cursor_pos = (int)m_current_buffer.size();
-    m_cursor_pos_view = utf8_length(m_current_buffer);
+    m_cursor_pos_view = utf_8::length(m_current_buffer);
     update_current_buffer_view();
 }
 
@@ -192,7 +156,7 @@ bool lk::InteractiveBackend::cancel_autocomplete_suggestion() {
 
 void lk::InteractiveBackend::handle_backspace() {
     if (!cancel_autocomplete_suggestion() && !m_current_buffer.empty()) {
-        size_t remove_count = make_left(m_current_buffer.c_str(), m_cursor_pos);
+        size_t remove_count = utf_8::get_prev_symbol_offset(m_current_buffer, m_cursor_pos);
         --m_cursor_pos_view;
         if ((m_cursor_pos -= remove_count) < 0) {
             m_cursor_pos = 0;
@@ -205,7 +169,7 @@ void lk::InteractiveBackend::handle_backspace() {
 
 void lk::InteractiveBackend::handle_delete() {
     if (!m_current_buffer.empty() && m_cursor_pos < int(m_current_buffer.size())) {
-        size_t remove_count = make_right(m_current_buffer.c_str(), m_cursor_pos);
+        size_t remove_count = utf_8::get_next_symbol_offset(m_current_buffer, m_cursor_pos);
         m_current_buffer.erase(m_cursor_pos, remove_count);
         update_current_buffer_view();
     }
@@ -403,6 +367,7 @@ void lk::InteractiveBackend::enable_key_debug() {
 void lk::InteractiveBackend::disable_key_debug() {
     m_key_debug = false;
 }
+
 std::string lk::InteractiveBackend::current_view() {
     std::string buffer = m_current_buffer;
     const auto view = current_view_size();
@@ -418,7 +383,9 @@ std::string lk::InteractiveBackend::current_view() {
         } else {
             ++end;
         }
-        buffer = prefix + buffer.substr(current_view_offset(), end) + postfix;
+        size_t from = utf_8::get_char_offset(buffer, current_view_offset());
+        size_t count = utf_8::get_char_offset(buffer, end, from);
+        buffer = prefix + buffer.substr(from, count) + postfix;
     }
     return buffer;
 }
@@ -426,9 +393,9 @@ std::string lk::InteractiveBackend::current_view() {
 size_t lk::InteractiveBackend::current_view_cursor_pos() {
     const auto view = current_view_size();
     if (current_view_offset() + view > view) {
-        return m_cursor_pos_view + m_prompt.size() - current_view_offset() + 2;
+        return m_cursor_pos_view + utf_8::length(m_prompt) - current_view_offset() + 2;
     } else {
-        return m_cursor_pos_view + m_prompt.size() - current_view_offset() + 1;
+        return m_cursor_pos_view + utf_8::length(m_prompt) - current_view_offset() + 1;
     }
 }
 
@@ -439,6 +406,7 @@ size_t lk::InteractiveBackend::current_view_offset() {
     }
     return m_cursor_pos_view - view_size;
 }
+
 size_t lk::InteractiveBackend::current_view_size() {
     const auto w = impl::get_terminal_width() - m_prompt.size() - 1;
     const auto view_size = w - 1;
