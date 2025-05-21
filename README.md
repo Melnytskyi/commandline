@@ -1,11 +1,12 @@
 # commandline
-[![Linux Build](https://github.com/lionkor/commandline/workflows/CMake-Linux/badge.svg?branch=master)](https://github.com/lionkor/commandline/actions?query=workflow%3ACMake-Linux)
-[![Windows Build](https://github.com/lionkor/commandline/workflows/CMake-Windows/badge.svg?branch=master)](https://github.com/lionkor/commandline/actions?query=workflow%3ACMake-Windows)
-[![CodeFactor](https://www.codefactor.io/repository/github/lionkor/commandline/badge)](https://www.codefactor.io/repository/github/lionkor/commandline)
 
 A cross-platfrom C++11 commandline for use in servers and terminal chat software. Provides very simple asynchronous input/output. 
 
 Callback-based i/o supported, as well as history, autocomplete, custom prompts, and more (see [features](#features))
+
+### Why this, and not GNU readline?
+
+With this library, you can **write to stdout**, while at the same time, **reading from stdin**, without any TUI. That's it, that's why you need this.
 
 ## Example
 
