@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.31)
 
 project(commandline)
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 23)
 
 if (UNIX)
     add_definitions(-Wall -Wextra -pedantic)
