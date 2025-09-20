@@ -61,7 +61,7 @@ namespace utf_8 {
     // When it represents a codepoint beyond ASCII, it will have the MSB set,
     // and the last byte will have the 10xxxxxx bits set to mark it as end of the codepoint.
     // Therefore, this loop will count all ASCII symbols and the last byte of each codepoint.
-    size_t length(const char* str, size_t siz = -1) {
+    size_t length(const char* str, size_t siz = SIZE_MAX) {
         size_t len = 0;
 
         while (*str && len != siz) {
