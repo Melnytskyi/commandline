@@ -65,7 +65,7 @@ namespace utf_8 {
         size_t len = 0;
 
         while (*str && len != siz) {
-            len += (*str++ & 0xc0) <= 0x80;
+            len += (*str++ & 0xc0) != 0x80;
         }
         return len;
     }
