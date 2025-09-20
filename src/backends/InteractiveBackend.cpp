@@ -249,7 +249,9 @@ void lk::InteractiveBackend::input_thread_main() {
         bool shutdown = m_shutdown.load();
         // check so we dont do anything on the last pass before exit
         if (!shutdown) {
-            m_current_buffer.erase(m_current_buffer.size() - 1);
+            if (m_current_buffer.size() > 0) {
+                m_current_buffer.erase(m_current_buffer.size() - 1);
+            }
 
             if (history_enabled() && m_current_buffer.size() > 0) {
                 add_to_history(m_current_buffer);
